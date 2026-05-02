@@ -93,3 +93,6 @@ metrics/
 *.tmp
 *.bak
 Thumbs.db
+
+# Auto-generated resolved dataset YAMLs (created by src.train / src.evaluate)
+configs/.*.resolved.yaml

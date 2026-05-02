@@ -11,9 +11,35 @@ import argparse
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from src.utils import auto_device, get_logger, gpu_memory_mb, load_yaml
+from src.utils import auto_device, get_logger, gpu_memory_mb, load_yaml, save_yaml
 
 LOGGER = get_logger("train")
+
+
+def resolve_dataset_yaml(data_path: str) -> str:
+    """Rewrite a dataset YAML so all paths are absolute.
+
+    Ultralytics resolves a relative ``path:`` against its global
+    ``datasets_dir`` setting, which often points at an unrelated old project
+    on Windows. To avoid that, we materialize a sibling YAML with absolute
+    paths and pass that to Ultralytics instead. Pre-shipped names like
+    ``coco8.yaml`` (no path separators, no .yaml on disk in cwd) are passed
+    through unchanged so the registry still resolves them.
+    """
+    src = Path(data_path)
+    if not src.is_file():
+        return data_path
+    src = src.resolve()
+    cfg = load_yaml(src)
+    base = src.parent
+    if "path" in cfg and cfg["path"]:
+        p = Path(cfg["path"])
+        if not p.is_absolute():
+            cfg["path"] = str((base / p).resolve())
+    out = src.with_name(f".{src.stem}.resolved.yaml")
+    save_yaml(cfg, out)
+    LOGGER.info("Resolved dataset YAML written to %s (path=%s)", out, cfg.get("path"))
+    return str(out)
 
 
 def build_train_kwargs(cfg: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
@@ -26,6 +52,8 @@ def build_train_kwargs(cfg: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[s
     merged.pop("model", None)
     merged.pop("mode", None)
     merged["device"] = auto_device(merged.get("device") or None)
+    if "data" in merged and merged["data"]:
+        merged["data"] = resolve_dataset_yaml(merged["data"])
     return merged
 
 

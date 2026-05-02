@@ -13,9 +13,27 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from src.utils import auto_device, get_logger, load_yaml, save_json
+from src.utils import auto_device, get_logger, load_yaml, save_json, save_yaml
 
 LOGGER = get_logger("evaluate")
+
+
+def resolve_dataset_yaml(data_path: str) -> str:
+    """Materialize a sibling YAML with absolute paths so Ultralytics doesn't
+    resolve a relative ``path:`` against its global ``datasets_dir``."""
+    src = Path(data_path)
+    if not src.is_file():
+        return data_path
+    src = src.resolve()
+    cfg = load_yaml(src)
+    base = src.parent
+    if "path" in cfg and cfg["path"]:
+        p = Path(cfg["path"])
+        if not p.is_absolute():
+            cfg["path"] = str((base / p).resolve())
+    out = src.with_name(f".{src.stem}.resolved.yaml")
+    save_yaml(cfg, out)
+    return str(out)
 
 
 def evaluate(
@@ -53,6 +71,7 @@ def evaluate(
     device = auto_device(device)
     LOGGER.info("Evaluating %s on split=%s (device=%s)", weights, split, device)
 
+    data = resolve_dataset_yaml(data)
     model = YOLO(weights)
     try:
         metrics = model.val(
