@@ -16,7 +16,7 @@ patience: 20
 batch: 16
 imgsz: 640
 device: ""              # auto: GPU if available, else CPU (set in train.py)
-workers: 8
+workers: 4              # Windows + low RAM: lower this (0 disables multiprocessing)
 seed: 42
 deterministic: True
 pretrained: True

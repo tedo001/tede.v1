@@ -69,7 +69,7 @@ def train(config_path: str, overrides: Optional[Dict[str, Any]] = None) -> Path:
     """
     overrides = overrides or {}
     cfg = load_yaml(config_path)
-    model_path = cfg.get("model", "yolo26x.pt")
+    model_path = overrides.pop("model", None) or cfg.get("model", "yolo26x.pt")
     train_kwargs = build_train_kwargs(cfg, overrides)
 
     LOGGER.info("Loading YOLO26x model: %s", model_path)
@@ -140,11 +140,13 @@ def parse_args() -> argparse.Namespace:
     """Build the CLI."""
     p = argparse.ArgumentParser(description="Train YOLO26x on a custom dataset.")
     p.add_argument("--config", type=str, default="configs/model.yaml", help="Path to model config YAML")
+    p.add_argument("--model", type=str, help="Override model weights, e.g. yolo26n.pt|yolo26s.pt|yolo26m.pt")
     p.add_argument("--data", type=str, help="Override dataset YAML path")
     p.add_argument("--epochs", type=int, help="Override number of epochs")
     p.add_argument("--batch", type=int, help="Override batch size")
     p.add_argument("--imgsz", type=int, help="Override image size")
     p.add_argument("--device", type=str, help="Override device, e.g. '0', 'cpu', '0,1'")
+    p.add_argument("--workers", type=int, help="Dataloader workers (set 0 on low-RAM Windows)")
     p.add_argument("--name", type=str, help="Override run name")
     p.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
     return p.parse_args()
@@ -153,11 +155,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """Module entrypoint."""
     args = parse_args()
-    overrides = {
-        k: v
-        for k, v in vars(args).items()
-        if k != "config" and v not in (None, False)
-    }
+    overrides: Dict[str, Any] = {}
+    for k, v in vars(args).items():
+        if k == "config":
+            continue
+        if v in (None, False):
+            continue
+        overrides[k] = v
+    # workers=0 must be preserved (it's not None)
+    if args.workers is not None:
+        overrides["workers"] = args.workers
     try:
         train(args.config, overrides=overrides)
     except SystemExit:
