@@ -69,10 +69,26 @@ yolo26x-custom/
 
 ### 2.2. Plain CLI (Linux / Colab)
 
+CPU-only environment (`.venv/`):
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
 make setup
+source .venv/bin/activate
 ```
+
+GPU environment (`venv_gpu/`, CUDA-enabled PyTorch):
+
+```bash
+make setup-gpu                       # defaults to CUDA 12.1
+make setup-gpu CUDA=cu118            # for CUDA 11.8 drivers
+make setup-gpu CUDA=cu124            # for CUDA 12.4
+source venv_gpu/bin/activate
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+The two venvs coexist; activate whichever you need before running `make train`,
+`make evaluate`, etc. PyCharm: *Settings -> Project -> Python Interpreter ->
+Add -> Existing Environment* and point at the right `bin/python`.
 
 ---
 
