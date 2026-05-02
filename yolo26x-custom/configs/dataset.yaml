@@ -1,0 +1,20 @@
+# Ultralytics YOLO26x custom dataset configuration
+# Reference: https://docs.ultralytics.com/datasets/detect/
+
+# Root path (relative to this file or absolute). Ultralytics resolves train/val/test
+# relative to `path` when present.
+path: ../data
+
+# Image directories (relative to `path`)
+train: images/train
+val: images/val
+test: images/test
+
+# Number of classes
+nc: 3
+
+# Class names — replace with your own labels and update `nc` accordingly
+names:
+  0: person
+  1: vehicle
+  2: animal

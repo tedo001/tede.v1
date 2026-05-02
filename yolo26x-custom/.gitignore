@@ -1,0 +1,94 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.Python
+.installed.cfg
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.cache
+coverage.xml
+*.cover
+
+# Logs
+*.log
+logs/
+
+# YOLO / Ultralytics outputs
+runs/
+weights/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.tflite
+*.torchscript
+*.pb
+*.mlmodel
+yolo*.pt
+
+# Datasets (large binary assets ignored by default)
+data/images/train/*
+data/images/val/*
+data/images/test/*
+data/labels/train/*
+data/labels/val/*
+data/labels/test/*
+!data/images/train/.gitkeep
+!data/images/val/.gitkeep
+!data/images/test/.gitkeep
+!data/labels/train/.gitkeep
+!data/labels/val/.gitkeep
+!data/labels/test/.gitkeep
+
+# MLflow / experiment artifacts
+mlruns/
+mlartifacts/
+model_registry/
+artifacts/
+
+# DVC
+.dvc/cache
+.dvc/tmp
+.dvc/plots
+
+# Monitoring / metrics
+monitoring/
+metrics/
+
+# OS / temp
+*.tmp
+*.bak
+Thumbs.db

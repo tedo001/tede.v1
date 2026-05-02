@@ -1,0 +1,68 @@
+# YOLO26x training hyperparameters
+# These override the Ultralytics default config (ultralytics/cfg/default.yaml)
+# Docs: https://docs.ultralytics.com/usage/cfg/
+
+# Model & data
+model: yolo26x.pt
+data: configs/dataset.yaml
+project: runs/detect
+name: yolo26x_custom
+
+# Core training params
+task: detect
+mode: train
+epochs: 100
+patience: 20
+batch: 16
+imgsz: 640
+device: ""              # auto: GPU if available, else CPU (set in train.py)
+workers: 8
+seed: 42
+deterministic: True
+pretrained: True
+amp: True
+cache: False
+save: True
+save_period: 10         # checkpoint every 10 epochs
+exist_ok: False
+verbose: True
+
+# Optimizer (YOLO26 native)
+optimizer: MuSGD
+lr0: 0.01
+lrf: 0.01
+momentum: 0.937
+weight_decay: 0.0005
+warmup_epochs: 3.0
+warmup_momentum: 0.8
+warmup_bias_lr: 0.1
+cos_lr: False
+close_mosaic: 10
+
+# Loss gains
+box: 7.5
+cls: 0.5
+dfl: 1.5
+nbs: 64
+
+# Augmentations (augment=True equivalent)
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+degrees: 0.0
+translate: 0.1
+scale: 0.5
+shear: 0.0
+perspective: 0.0
+flipud: 0.0
+fliplr: 0.5
+bgr: 0.0
+mosaic: 1.0
+mixup: 0.0
+cutmix: 0.0
+copy_paste: 0.0
+erasing: 0.4
+
+# Validation & plotting
+val: True
+plots: True

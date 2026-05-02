@@ -1,0 +1,43 @@
+# Ultralytics YOLO26x stack
+ultralytics>=8.3.0
+
+# Deep learning
+torch>=2.1.0
+torchvision>=0.16.0
+
+# MLOps
+mlflow>=2.10.0
+dvc>=3.40.0
+
+# Serving
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+
+# Computer vision / data
+opencv-python>=4.9.0
+pillow>=10.2.0
+numpy>=1.24.0
+pandas>=2.1.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+scikit-learn>=1.4.0
+pyyaml>=6.0.1
+tqdm>=4.66.0
+
+# System monitoring
+psutil>=5.9.0
+gputil>=1.4.0
+
+# Inference / export
+onnx>=1.15.0
+onnxruntime>=1.17.0
+
+# Testing & quality
+pytest>=8.0.0
+pytest-cov>=4.1.0
+flake8>=7.0.0
+black>=24.1.0
+
+# HTTP utility
+requests>=2.31.0
