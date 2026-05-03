@@ -1,0 +1,13 @@
+# TEDE example dataset config — copy and edit for your project.
+# Reference: https://docs.ultralytics.com/datasets/detect/
+
+path: ../data
+train: images/train
+val: images/val
+test: images/test
+
+nc: 3
+names:
+  0: person
+  1: vehicle
+  2: animal
