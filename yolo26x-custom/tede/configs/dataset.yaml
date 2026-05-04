@@ -1,5 +1,5 @@
 # TEDE example dataset config — copy and edit for your project.
-# Reference: https://docs.ultralytics.com/datasets/detect/
+# Format: standard YOLO labels (class_id cx cy w h, normalised to [0, 1]).
 
 path: ../data
 train: images/train

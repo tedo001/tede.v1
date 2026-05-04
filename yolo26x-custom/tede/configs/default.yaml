@@ -1,52 +1,24 @@
 # TEDE default training hyperparameters.
-# All keys map directly to Ultralytics' YOLO.train() kwargs.
+# All keys map directly to TEDE.train() / Trainer kwargs.
 
-model: yolo26s.pt
+arch: retinanet            # retinanet | fcos | fasterrcnn | ssd
 data: configs/dataset.yaml
 project: runs/detect
 name: tede
 
-task: detect
 epochs: 100
-patience: 20
-batch: 16
+batch: 8
 imgsz: 640
-device: ""
-workers: 4
+device: ""                 # empty = auto (GPU if available, else CPU)
+workers: 2                 # use 0 on low-RAM Windows
 seed: 42
-deterministic: true
-pretrained: true
-amp: true
-cache: false
-save: true
+pretrained: true           # ImageNet-pretrained backbone (recommended)
+amp: true                  # mixed precision when CUDA is available
 save_period: 10
-exist_ok: false
-verbose: true
+patience: 20
 
-optimizer: MuSGD
-lr0: 0.01
-lrf: 0.01
-momentum: 0.937
-weight_decay: 0.0005
-warmup_epochs: 3.0
-warmup_momentum: 0.8
-warmup_bias_lr: 0.1
-cos_lr: false
-close_mosaic: 10
-
-box: 7.5
-cls: 0.5
-dfl: 1.5
-nbs: 64
-
-hsv_h: 0.015
-hsv_s: 0.7
-hsv_v: 0.4
-translate: 0.1
-scale: 0.5
-fliplr: 0.5
-mosaic: 1.0
-erasing: 0.4
-
-val: true
-plots: true
+# Optimizer
+optimizer: sgd             # sgd | adamw | adam
+lr0: 0.005
+weight_decay: 0.0001
+momentum: 0.9

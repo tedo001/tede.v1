@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tede"
-version = "0.1.0"
-description = "TEDE — production object detection framework built on Ultralytics."
+version = "0.2.0"
+description = "TEDE — independent production-grade object detection framework built on PyTorch + torchvision."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "AGPL-3.0-or-later" }
 authors = [{ name = "tedo001" }]
-keywords = ["object-detection", "yolo", "computer-vision", "mlops", "ultralytics"]
+keywords = ["object-detection", "computer-vision", "mlops", "pytorch", "torchvision"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -24,7 +24,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Recognition",
 ]
 dependencies = [
-    "ultralytics>=8.3.0",
     "torch>=2.1.0",
     "torchvision>=0.16.0",
     "opencv-python>=4.9.0",
