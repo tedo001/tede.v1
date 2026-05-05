@@ -1,13 +1,20 @@
-"""Standalone export helper. ``TEDE.export()`` is the recommended entrypoint."""
+"""Backward-compatible export shim.
+
+Earlier versions of TEDE wrapped Ultralytics' export. The framework is
+now independent of Ultralytics, and the real implementation lives in
+``tede.engine.exporter``. This module preserves the ``tede.export.export``
+import path for any user code that still references it.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Optional
 
-from tede.utils import auto_device, get_logger
+from tede.engine.exporter import export_onnx
+from tede.utils import get_logger
 
 LOGGER = get_logger("tede.export")
-SUPPORTED_FORMATS = {"onnx", "engine", "torchscript", "openvino", "coreml", "tflite"}
+SUPPORTED_FORMATS = {"onnx"}
 
 
 def export(
@@ -15,32 +22,20 @@ def export(
     fmt: str = "onnx",
     imgsz: int = 640,
     half: bool = False,
-    dynamic: bool = False,
-    device: str | None = None,
+    dynamic: bool = True,
+    device: Optional[str] = None,
     simplify: bool = True,
 ) -> str:
-    """Export a TEDE/Ultralytics checkpoint to a deployable format.
+    """Export a TEDE checkpoint to a deployable format.
 
-    Returns the artifact path.
+    Currently only ``onnx`` is supported by the standalone engine. Convert
+    the resulting ``.onnx`` file to TensorRT, OpenVINO, etc. with their
+    respective external toolchains.
     """
     fmt = fmt.lower()
     if fmt not in SUPPORTED_FORMATS:
-        raise ValueError(f"Unsupported format '{fmt}'. Supported: {sorted(SUPPORTED_FORMATS)}")
-    if not Path(weights).is_file():
-        raise FileNotFoundError(f"Weights file not found: {weights}")
-    try:
-        from ultralytics import YOLO
-    except ImportError as exc:
-        raise ImportError("Ultralytics is required for export.") from exc
-
-    device = auto_device(device)
-    LOGGER.info("Exporting %s to format=%s (imgsz=%d, device=%s)", weights, fmt, imgsz, device)
-    try:
-        artifact = YOLO(weights).export(
-            format=fmt, imgsz=imgsz, half=half, dynamic=dynamic, simplify=simplify, device=device
+        raise NotImplementedError(
+            f"Format '{fmt}' not supported by the standalone TEDE engine. "
+            "Export to ONNX first, then convert with the target runtime's tools."
         )
-    except Exception as exc:
-        LOGGER.exception("Export failed.")
-        raise RuntimeError(f"Export failed: {exc}") from exc
-    LOGGER.info("Exported artifact: %s", artifact)
-    return str(artifact)
+    return export_onnx(weights=weights, imgsz=imgsz, dynamic=dynamic, device=device)

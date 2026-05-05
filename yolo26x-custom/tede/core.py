@@ -1,9 +1,12 @@
-"""TEDE: a thin orchestration layer on top of Ultralytics with MLOps hooks.
+"""TEDE high-level API.
 
-The class wraps ``ultralytics.YOLO`` so users get a single entrypoint for
-train / val / predict / export / serve / register, plus optional MLflow
-tracking and a local model registry — without losing access to the underlying
-Ultralytics power-user API via ``TEDE.yolo``.
+The ``TEDE`` class is the public entrypoint for the framework. It is a
+thin orchestration layer over ``tede.engine`` and exposes the same five
+verbs you'd expect from any detection framework: ``train``, ``val``,
+``predict``, ``export``, ``serve``.
+
+This implementation is fully independent of Ultralytics — every detection
+component is built on torchvision and pure PyTorch.
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from tede.utils import auto_device, get_logger, gpu_memory_mb
+from tede.utils import get_logger
 
 LOGGER = get_logger("tede")
 
@@ -21,260 +24,197 @@ class TEDE:
 
     Examples:
         >>> from tede import TEDE
-        >>> model = TEDE("yolo26s.pt")
-        >>> model.train(data="data.yaml", epochs=50, batch=8)
+        >>> model = TEDE(arch="retinanet")
+        >>> best = model.train(data="data.yaml", epochs=50, batch=8)
         >>> metrics = model.val(data="data.yaml")
         >>> dets = model.predict("image.jpg")
         >>> model.export(format="onnx")
     """
 
-    def __init__(self, weights: str = "yolo26s.pt") -> None:
+    def __init__(self, weights: Optional[str] = None, arch: str = "retinanet") -> None:
         """Construct a TEDE detector.
 
         Args:
-            weights: Path to a ``.pt`` checkpoint, or a name like
-                ``yolo26n.pt|yolo26s.pt|yolo26m.pt|yolo26l.pt|yolo26x.pt``.
-                Ultralytics auto-downloads the official weights if missing.
+            weights: Optional path to a previously trained ``.pt`` checkpoint.
+                If ``None``, a fresh model is built when ``train`` is called.
+            arch: One of ``retinanet | fcos | fasterrcnn | ssd``. Ignored
+                when loading from a checkpoint (the checkpoint records its
+                own architecture).
         """
         self.weights = weights
-        self._yolo = None
+        self.arch = arch
+        self._predictor = None
         self._tracker = None
 
-    @property
-    def yolo(self) -> Any:
-        """Underlying ``ultralytics.YOLO`` instance (lazy-loaded)."""
-        if self._yolo is None:
-            try:
-                from ultralytics import YOLO
-            except ImportError as exc:  # pragma: no cover
-                raise ImportError(
-                    "Ultralytics is required. Install with: pip install ultralytics"
-                ) from exc
-            LOGGER.info("Loading model: %s", self.weights)
-            self._yolo = YOLO(self.weights)
-        return self._yolo
+    def _load_predictor(self):
+        from tede.engine import Predictor
 
-    @property
-    def names(self) -> Dict[int, str]:
-        """Class id -> name mapping from the loaded model."""
-        return getattr(self.yolo, "names", {}) or {}
+        if self.weights is None:
+            raise RuntimeError("No weights loaded. Train a model first or pass weights=... .")
+        if self._predictor is None or self._predictor.weights != self.weights:
+            self._predictor = Predictor(self.weights)
+        return self._predictor
 
     def train(
         self,
         data: str,
-        epochs: int = 100,
-        batch: int = 16,
+        epochs: int = 50,
+        batch: int = 8,
         imgsz: int = 640,
         device: Optional[str] = None,
-        workers: Optional[int] = None,
+        workers: int = 2,
+        lr0: float = 0.005,
+        optimizer: str = "sgd",
+        weight_decay: float = 1e-4,
+        momentum: float = 0.9,
+        amp: bool = True,
+        save_period: int = 10,
+        patience: int = 20,
+        project: str = "runs/detect",
+        name: str = "tede",
+        pretrained: bool = True,
         track: bool = True,
         register_after: bool = False,
         **kwargs: Any,
     ) -> Path:
-        """Train on a dataset YAML.
+        """Train on a YOLO-format dataset YAML and return the best checkpoint."""
+        from tede.engine import Trainer
 
-        Args:
-            data: Path to a YOLO-format dataset YAML.
-            epochs: Number of epochs.
-            batch: Batch size.
-            imgsz: Image size.
-            device: Compute device override (``"0"``, ``"cpu"``, ``"0,1"``).
-            workers: Dataloader workers (use ``0`` on low-RAM Windows).
-            track: Enable MLflow tracking when MLflow is installed.
-            register_after: If True, register ``best.pt`` to the model registry.
-            **kwargs: Additional kwargs forwarded to ``YOLO.train``.
-
-        Returns:
-            Path to ``best.pt``.
-        """
-        from tede.data import resolve_dataset_yaml
-
-        device = auto_device(device)
-        train_kwargs: Dict[str, Any] = {
-            "data": resolve_dataset_yaml(data),
-            "epochs": epochs,
-            "batch": batch,
-            "imgsz": imgsz,
-            "device": device,
-            **kwargs,
-        }
-        if workers is not None:
-            train_kwargs["workers"] = workers
-
+        # Optional MLflow tracking — soft dependency.
         if track:
             try:
                 from tede.tracking import ExperimentTracker
 
                 self._tracker = ExperimentTracker(experiment_name="tede")
-                self._tracker.start_run(run_name=train_kwargs.get("name", "tede_run"))
-                self._tracker.log_params(train_kwargs)
+                self._tracker.start_run(run_name=name)
+                params = {
+                    "data": data, "arch": self.arch, "epochs": epochs, "batch": batch,
+                    "imgsz": imgsz, "device": str(device), "workers": workers,
+                    "lr0": lr0, "optimizer": optimizer, "weight_decay": weight_decay,
+                    "momentum": momentum, "amp": amp, "pretrained": pretrained,
+                }
+                self._tracker.log_params(params)
             except Exception as exc:
                 LOGGER.warning("Tracking disabled: %s", exc)
                 self._tracker = None
 
-        LOGGER.info("Training kwargs: %s", train_kwargs)
-        LOGGER.info("Pre-train CUDA memory: %s MB", gpu_memory_mb())
-
+        trainer = Trainer(
+            data=data, arch=self.arch, epochs=epochs, batch=batch, imgsz=imgsz,
+            device=device, workers=workers, lr0=lr0, optimizer=optimizer,
+            weight_decay=weight_decay, momentum=momentum, amp=amp,
+            save_period=save_period, patience=patience, project=project,
+            name=name, pretrained=pretrained, resume=self.weights if kwargs.get("resume") else None,
+        )
         try:
-            results = self.yolo.train(**train_kwargs)
-        except KeyboardInterrupt:
-            LOGGER.warning("Training interrupted by user.")
-            if self._tracker:
-                self._tracker.end_run("KILLED")
-            raise
+            best = trainer.fit()
         except Exception as exc:
-            LOGGER.exception("Training failed.")
             if self._tracker:
                 self._tracker.end_run("FAILED")
             raise RuntimeError(f"Training failed: {exc}") from exc
 
-        save_dir = Path(getattr(results, "save_dir", "runs/detect"))
-        best = save_dir / "weights" / "best.pt"
-        last = save_dir / "weights" / "last.pt"
+        self.weights = str(best)
+        self._predictor = None  # force reload from new best.pt
 
         if self._tracker:
             try:
-                metrics = getattr(results, "results_dict", None) or {}
-                self._tracker.log_metrics(
-                    {k: float(v) for k, v in metrics.items() if isinstance(v, (int, float))}
-                )
-                for art in (best, last):
-                    if art.is_file():
-                        self._tracker.log_artifact(str(art))
+                if best.is_file():
+                    self._tracker.log_artifact(str(best))
                 self._tracker.end_run("FINISHED")
             except Exception as exc:  # pragma: no cover
                 LOGGER.warning("Failed to log artifacts: %s", exc)
 
-        LOGGER.info("Post-train CUDA memory: %s MB", gpu_memory_mb())
-        if best.is_file():
-            self.weights = str(best)
-            self._yolo = None  # force reload from best.pt on next use
-            if register_after:
-                metrics_dict = getattr(results, "results_dict", None) or {}
-                self.register(
-                    metrics={k: float(v) for k, v in metrics_dict.items() if isinstance(v, (int, float))},
-                    dataset=data,
-                )
-            LOGGER.info("Best checkpoint: %s", best)
-            return best
-        LOGGER.warning("best.pt not found at %s; returning save_dir.", best)
-        return save_dir
+        if register_after:
+            try:
+                metrics = self.val(data=data)
+                self.register(metrics={k: v for k, v in metrics.items() if isinstance(v, (int, float))}, dataset=data)
+            except Exception as exc:
+                LOGGER.warning("Auto-register failed: %s", exc)
 
-    def val(self, data: str, **kwargs: Any) -> Dict[str, Any]:
-        """Validate the model and return a metrics dict."""
-        from tede.data import resolve_dataset_yaml
+        return best
 
-        kwargs.setdefault("device", auto_device(kwargs.get("device")))
-        data = resolve_dataset_yaml(data)
-        try:
-            metrics = self.yolo.val(data=data, **kwargs)
-        except Exception as exc:
-            raise RuntimeError(f"Validation failed: {exc}") from exc
-        box = metrics.box
-        report = {
-            "mAP50": float(box.map50),
-            "mAP50-95": float(box.map),
-            "mean_precision": float(box.mp),
-            "mean_recall": float(box.mr),
-        }
-        try:
-            per_class = []
-            for i, cls_id in enumerate(box.ap_class_index):
-                per_class.append(
-                    {
-                        "class_id": int(cls_id),
-                        "class_name": self.names.get(int(cls_id), str(cls_id)),
-                        "precision": float(box.p[i]) if i < len(box.p) else None,
-                        "recall": float(box.r[i]) if i < len(box.r) else None,
-                        "mAP50": float(box.ap50[i]) if i < len(box.ap50) else None,
-                        "mAP50-95": float(box.ap[i]) if i < len(box.ap) else None,
-                    }
-                )
-            report["per_class"] = per_class
-        except (AttributeError, IndexError):
-            report["per_class"] = []
-        return report
+    def val(self, data: str, batch: int = 8, imgsz: int = 640, device: Optional[str] = None,
+            workers: int = 0, split: str = "val") -> Dict[str, Any]:
+        """Run validation on a dataset split and return mAP metrics."""
+        import torch
+        from torch.utils.data import DataLoader
 
-    def predict(
-        self,
-        source: Union[str, int],
-        conf: float = 0.25,
-        iou: float = 0.7,
-        imgsz: int = 640,
-        device: Optional[str] = None,
-        save: bool = False,
-        **kwargs: Any,
-    ) -> List[Dict[str, Any]]:
-        """Run inference and return JSON-serializable detections."""
-        device = auto_device(device)
-        try:
-            results = self.yolo.predict(
-                source=source,
-                conf=conf,
-                iou=iou,
-                imgsz=imgsz,
-                device=device,
-                save=save,
-                verbose=False,
-                **kwargs,
-            )
-        except Exception as exc:
-            raise RuntimeError(f"Prediction failed: {exc}") from exc
-        names = self.names
-        payload: List[Dict[str, Any]] = []
-        for r in results:
-            dets: List[Dict[str, Any]] = []
-            boxes = getattr(r, "boxes", None)
-            if boxes is not None:
-                try:
-                    xyxy = boxes.xyxy.cpu().numpy().tolist()
-                    confs = boxes.conf.cpu().numpy().tolist()
-                    clses = boxes.cls.cpu().numpy().astype(int).tolist()
-                    for box, c, k in zip(xyxy, confs, clses):
-                        dets.append(
-                            {
-                                "bbox_xyxy": [float(x) for x in box],
-                                "confidence": float(c),
-                                "class_id": int(k),
-                                "class_name": names.get(int(k), str(k)),
-                            }
-                        )
-                except (AttributeError, ValueError) as exc:
-                    LOGGER.warning("Failed to parse boxes: %s", exc)
-            payload.append({"image": getattr(r, "path", None), "detections": dets})
-        return payload
+        from tede.datasets import YOLODataset, build_transforms, collate_fn
+        from tede.engine import Validator
+        from tede.nn import build_model
+        from tede.nn.model import label_offset
+        from tede.utils import auto_device
+
+        if self.weights is None:
+            raise RuntimeError("val requires weights. Train first or pass weights=... .")
+
+        dev = torch.device("cuda:0" if str(auto_device(device)) == "0" else auto_device(device))
+        ckpt = torch.load(self.weights, map_location=dev)
+        arch = ckpt.get("arch", self.arch)
+        nc = ckpt["num_classes"]
+
+        ds = YOLODataset(
+            data, split=split,
+            transforms=build_transforms(imgsz, training=False),
+            label_offset=label_offset(arch),
+        )
+        loader = DataLoader(
+            ds, batch_size=batch, shuffle=False, num_workers=workers,
+            collate_fn=collate_fn, pin_memory=dev.type == "cuda",
+        )
+        model = build_model(num_classes=nc, arch=arch, pretrained_backbone=False)
+        model.load_state_dict(ckpt["model"])
+        model.to(dev).eval()
+
+        return Validator(model, loader, dev, arch=arch).run()
+
+    def predict(self, source: Union[str, int], conf: float = 0.25, imgsz: int = 640,
+                device: Optional[str] = None, **kwargs: Any) -> List[Dict[str, Any]]:
+        """Run inference and return a list of per-image detection dicts."""
+        from tede.engine import Predictor
+
+        if self.weights is None:
+            raise RuntimeError("predict requires weights. Train first or pass weights=... .")
+        if self._predictor is None or self._predictor.weights != self.weights:
+            self._predictor = Predictor(self.weights, device=device, imgsz=imgsz, conf=conf)
+        return self._predictor(source)
 
     def export(self, format: str = "onnx", imgsz: int = 640, **kwargs: Any) -> str:
-        """Export to a deployable runtime format (onnx | engine | torchscript | ...)."""
-        try:
-            artifact = self.yolo.export(format=format, imgsz=imgsz, **kwargs)
-        except Exception as exc:
-            raise RuntimeError(f"Export failed: {exc}") from exc
-        return str(artifact)
+        """Export to a deployable runtime format. Currently supports ``onnx``."""
+        from tede.engine import export_onnx
+
+        if self.weights is None:
+            raise RuntimeError("export requires weights. Train first or pass weights=... .")
+        if format.lower() != "onnx":
+            raise NotImplementedError(
+                f"Format '{format}' not supported by the standalone TEDE engine. "
+                "Export to ONNX first, then convert to TensorRT/OpenVINO/CoreML "
+                "with their respective toolchains."
+            )
+        return export_onnx(self.weights, imgsz=imgsz, **kwargs)
 
     def serve(self, host: str = "0.0.0.0", port: int = 8000) -> None:
-        """Launch the bundled FastAPI inference server with this checkpoint."""
+        """Launch the bundled FastAPI inference server."""
         import os
 
         try:
             import uvicorn
         except ImportError as exc:  # pragma: no cover
             raise ImportError("Install serving extras: pip install tede[serving]") from exc
+
+        if self.weights is None:
+            raise RuntimeError("serve requires weights. Train first or pass weights=... .")
         os.environ["TEDE_WEIGHTS"] = self.weights
         from tede.api import app
 
         uvicorn.run(app, host=host, port=port)
 
-    def register(
-        self,
-        metrics: Dict[str, float],
-        dataset: Optional[str] = None,
-        notes: Optional[str] = None,
-        bump: str = "minor",
-    ) -> Dict[str, Any]:
+    def register(self, metrics: Dict[str, float], dataset: Optional[str] = None,
+                 notes: Optional[str] = None, bump: str = "minor") -> Dict[str, Any]:
         """Register the current weights to the local model registry."""
         from tede.registry import ModelRegistry
 
+        if self.weights is None:
+            raise RuntimeError("register requires weights.")
         return ModelRegistry().register(
-            self.weights, metrics=metrics, dataset=dataset, notes=notes, bump=bump
+            self.weights, metrics=metrics, dataset=dataset, notes=notes, bump=bump,
         )

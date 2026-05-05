@@ -1,7 +1,7 @@
 """TEDE command-line interface (Ultralytics-style key=value arguments).
 
 Usage:
-    tede train data=data.yaml model=yolo26s.pt epochs=50 batch=8
+    tede train data=data.yaml arch=retinanet epochs=50 batch=8
     tede val   model=runs/.../best.pt data=data.yaml
     tede predict model=runs/.../best.pt source=img.jpg
     tede export  model=runs/.../best.pt format=onnx
@@ -54,7 +54,11 @@ def cmd_train(kv: Dict[str, Any]) -> None:
 
     if "data" not in kv:
         raise SystemExit("train requires data=path/to/data.yaml")
-    model = TEDE(kv.pop("model", "yolo26s.pt"))
+    arch = str(kv.pop("arch", "retinanet"))
+    weights = kv.pop("model", None)  # optional resume checkpoint
+    model = TEDE(weights=weights, arch=arch)
+    if weights:
+        kv.setdefault("resume", True)
     best = model.train(**kv)
     print(f"\nBest checkpoint: {best}")
 
@@ -62,50 +66,51 @@ def cmd_train(kv: Dict[str, Any]) -> None:
 def cmd_val(kv: Dict[str, Any]) -> None:
     from tede import TEDE
 
-    model_path = kv.pop("model", None)
-    if not model_path:
+    weights = kv.pop("model", None)
+    if not weights:
         raise SystemExit("val requires model=best.pt")
     if "data" not in kv:
         raise SystemExit("val requires data=path/to/data.yaml")
-    metrics = TEDE(model_path).val(**kv)
-    print(json.dumps(metrics, indent=2))
+    metrics = TEDE(weights=weights).val(**kv)
+    summary = {k: v for k, v in metrics.items() if k != "per_class"}
+    print(json.dumps(summary, indent=2))
 
 
 def cmd_predict(kv: Dict[str, Any]) -> None:
     from tede import TEDE
 
-    model_path = kv.pop("model", None)
-    if not model_path:
+    weights = kv.pop("model", None)
+    if not weights:
         raise SystemExit("predict requires model=best.pt")
     if "source" not in kv:
         raise SystemExit("predict requires source=path/to/img_or_dir")
     source = kv.pop("source")
     if isinstance(source, str) and source.isdigit():
         source = int(source)
-    results = TEDE(model_path).predict(source=source, **kv)
+    results = TEDE(weights=weights).predict(source=source, **kv)
     print(json.dumps(results, indent=2))
 
 
 def cmd_export(kv: Dict[str, Any]) -> None:
     from tede import TEDE
 
-    model_path = kv.pop("model", None)
-    if not model_path:
+    weights = kv.pop("model", None)
+    if not weights:
         raise SystemExit("export requires model=best.pt")
-    fmt = kv.pop("format", "onnx")
-    artifact = TEDE(model_path).export(format=fmt, **kv)
+    fmt = str(kv.pop("format", "onnx"))
+    artifact = TEDE(weights=weights).export(format=fmt, **kv)
     print(f"Exported: {artifact}")
 
 
 def cmd_serve(kv: Dict[str, Any]) -> None:
     from tede import TEDE
 
-    model_path = kv.pop("model", None)
-    if not model_path:
+    weights = kv.pop("model", None)
+    if not weights:
         raise SystemExit("serve requires model=best.pt")
     host = str(kv.pop("host", "0.0.0.0"))
     port = int(kv.pop("port", 8000))
-    TEDE(model_path).serve(host=host, port=port)
+    TEDE(weights=weights).serve(host=host, port=port)
 
 
 def cmd_preprocess(kv: Dict[str, Any]) -> None:
@@ -156,28 +161,18 @@ def main() -> None:
     """CLI entrypoint. Installed as the ``tede`` console script."""
     parser = argparse.ArgumentParser(
         prog="tede",
-        description="TEDE — production object detection framework.",
+        description="TEDE — independent production object detection framework.",
         usage="tede <command> key=value [key=value ...]",
     )
     parser.add_argument("--version", action="version", version=f"tede {__version__}")
-    parser.add_argument(
-        "command",
-        nargs="?",
-        choices=list(COMMANDS.keys()),
-        help="Subcommand to run",
-    )
-    parser.add_argument(
-        "kv",
-        nargs=argparse.REMAINDER,
-        help="key=value arguments (Ultralytics-style)",
-    )
+    parser.add_argument("command", nargs="?", choices=list(COMMANDS.keys()), help="Subcommand to run")
+    parser.add_argument("kv", nargs=argparse.REMAINDER, help="key=value arguments")
 
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
         sys.exit(1)
 
-    # Registry has a positional 'action' as the first token (e.g. `tede registry list`)
     kv: Dict[str, Any] = {}
     extra = list(args.kv)
     if args.command == "registry" and extra and "=" not in extra[0]:
